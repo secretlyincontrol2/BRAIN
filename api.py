@@ -1,6 +1,3 @@
-"""
-FastAPI application for BRAIN - Breast Research Augmented Intelligence Network
-"""
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,14 +21,12 @@ from faiss_retrieval import FAISSIndex
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
 app = FastAPI(
     title=Config.API_TITLE,
     description=Config.API_DESCRIPTION,
     version=Config.API_VERSION
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global variables for model and index
 model: Optional[SwinEmbedder] = None
 processor: Optional[AutoImageProcessor] = None
 faiss_index: Optional[FAISSIndex] = None
@@ -48,14 +42,12 @@ device: str = None
 
 
 class EmbeddingResponse(BaseModel):
-    """Response model for embedding generation"""
     embedding: List[float]
     embedding_dim: int
     model_name: str
 
 
 class SimilarCase(BaseModel):
-    """Model for a similar case"""
     distance: float
     label: int
     label_name: str
@@ -63,20 +55,17 @@ class SimilarCase(BaseModel):
 
 
 class RetrievalResponse(BaseModel):
-    """Response model for retrieval"""
     query_embedding: List[float]
     similar_cases: List[SimilarCase]
     top_k: int
 
 
 class AttentionVisualizationResponse(BaseModel):
-    """Response model for attention visualization"""
     attention_map_base64: str
     overlay_image_base64: str
 
 
 class HealthResponse(BaseModel):
-    """Response model for health check"""
     status: str
     model_loaded: bool
     faiss_index_loaded: bool
@@ -86,24 +75,19 @@ class HealthResponse(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize model and FAISS index on startup"""
     global model, processor, faiss_index, device
     
     logger.info("Starting up BRAIN API...")
     
-    # Create directories
     Config.create_directories()
     
-    # Determine device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logger.info(f"Using device: {device}")
     
-    # Load model
     try:
         logger.info("Loading Swin Transformer model...")
         model = SwinEmbedder()
         
-        # Try to load trained checkpoint
         checkpoint_path = Config.CHECKPOINTS_DIR / 'best_model.pth'
         if checkpoint_path.exists():
             logger.info(f"Loading checkpoint from {checkpoint_path}")
@@ -116,7 +100,6 @@ async def startup_event():
         model.to(device)
         model.eval()
         
-        # Load processor
         processor = AutoImageProcessor.from_pretrained(
             Config.MODEL_NAME,
             cache_dir=str(Config.MODEL_DIR)
@@ -128,7 +111,6 @@ async def startup_event():
         model = None
         processor = None
     
-    # Load FAISS index
     try:
         index_path = Config.FAISS_INDEX_DIR / 'validation_index'
         if index_path.with_suffix('.index').exists():
@@ -148,7 +130,6 @@ async def startup_event():
 
 @app.get("/", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
     return HealthResponse(
         status="healthy",
         model_loaded=model is not None,
@@ -160,19 +141,10 @@ async def health_check():
 
 @app.post("/embed", response_model=EmbeddingResponse)
 async def generate_embedding(file: UploadFile = File(...)):
-    """
-    Generate embedding for an uploaded image.
-    
-    Args:
-        file: Image file (JPEG, PNG, etc.)
-        
-    Returns:
-        Embedding vector and metadata
-    """
+   
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
-    # Validate file
     if file.content_type not in Config.SUPPORTED_FORMATS:
         raise HTTPException(
             status_code=400, 
@@ -180,19 +152,15 @@ async def generate_embedding(file: UploadFile = File(...)):
         )
     
     try:
-        # Read image
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert('RGB')
         
-        # Process image
         inputs = processor(images=image, return_tensors="pt")
         pixel_values = inputs['pixel_values'].to(device)
         
-        # Generate embedding
         with torch.no_grad():
             embedding, _ = model(pixel_values)
         
-        # Convert to list
         embedding_list = embedding.cpu().numpy()[0].tolist()
         
         return EmbeddingResponse(
@@ -211,19 +179,8 @@ async def retrieve_similar_cases(
     file: UploadFile = File(...),
     top_k: int = Query(default=Config.TOP_K_RETRIEVALS, ge=1, le=20)
 ):
-    """
-    Retrieve similar cases for an uploaded image.
-    
-    This implements the retrieval-augmented verification component,
-    finding similar cases from the indexed database.
-    
-    Args:
-        file: Image file
-        top_k: Number of similar cases to retrieve
-        
-    Returns:
-        Query embedding and list of similar cases
-    """
+   
+      
     if model is None or faiss_index is None:
         raise HTTPException(
             status_code=503, 
@@ -231,23 +188,18 @@ async def retrieve_similar_cases(
         )
     
     try:
-        # Read image
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert('RGB')
         
-        # Process image
         inputs = processor(images=image, return_tensors="pt")
         pixel_values = inputs['pixel_values'].to(device)
         
-        # Generate embedding
         with torch.no_grad():
             embedding, _ = model(pixel_values)
         
-        # Search in FAISS index
         embedding_np = embedding.cpu().numpy()
         results = faiss_index.search_with_metadata(embedding_np, k=top_k)
         
-        # Format results
         similar_cases = []
         for result in results[0]:
             label_name = "Malignant" if result['label'] == 1 else "Benign"
@@ -273,58 +225,39 @@ async def retrieve_similar_cases(
 
 @app.post("/visualize-attention", response_model=AttentionVisualizationResponse)
 async def visualize_attention(file: UploadFile = File(...)):
-    """
-    Generate attention rollout visualization for explainability.
-    
-    This provides visual explanation of which regions the model
-    focuses on when generating embeddings.
-    
-    Args:
-        file: Image file
-        
-    Returns:
-        Base64-encoded attention map and overlay image
-    """
+
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
-        # Read image
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert('RGB')
         original_size = image.size
         
-        # Process image
         inputs = processor(images=image, return_tensors="pt")
         pixel_values = inputs['pixel_values'].to(device)
         
-        # Get attention rollout
         attention_map = model.get_attention_rollout(pixel_values)
         
         if attention_map is None:
             raise HTTPException(status_code=500, detail="Failed to generate attention map")
         
-        # Resize attention map to match original image size
         attention_map_resized = cv2.resize(
             attention_map, 
             original_size, 
             interpolation=cv2.INTER_CUBIC
         )
         
-        # Normalize to 0-255
         attention_map_normalized = (attention_map_resized - attention_map_resized.min()) / \
                                   (attention_map_resized.max() - attention_map_resized.min())
         attention_map_uint8 = (attention_map_normalized * 255).astype(np.uint8)
         
-        # Create heatmap
         heatmap = cv2.applyColorMap(attention_map_uint8, cv2.COLORMAP_JET)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
         
-        # Create overlay
         image_np = np.array(image)
         overlay = cv2.addWeighted(image_np, 0.6, heatmap, 0.4, 0)
         
-        # Convert to base64
         def image_to_base64(img_array):
             img = Image.fromarray(img_array)
             buffer = io.BytesIO()
