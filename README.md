@@ -318,10 +318,10 @@ BRAIN/
 If you use BRAIN in your research, please cite:
 
 ```bibtex
-@software{brain2024,
+@software{brain2025,
   title={BRAIN: Breast Research Augmented Intelligence Network},
-  author={Your Name},
-  year={2024},
+  author={Timilehin Adedayo, Moyinoluwa Aina},
+  year={2025},
   url={https://github.com/secretlyincontrol2/BRAIN}
 }
 ```
@@ -334,10 +334,3 @@ If you use BRAIN in your research, please cite:
 - CBIS-DDSM: [Lee et al., 2017](https://wiki.cancerimagingarchive.net/display/Public/CBIS-DDSM)
 - BreakHis: [Spanhol et al., 2016](https://web.inf.ufpr.br/vri/databases/breast-cancer-histopathological-database-breakhis/)
 
-## License
-
-See LICENSE file for details.
-
-## Support
-
-For issues and questions, please open an issue on GitHub. 
